@@ -11,6 +11,9 @@ services:
     dockerContext: .
     plan: starter
     healthCheckPath: /api/health
+    # CPU inference on a 30s clip takes ~2 min. Keep the instance warm between
+    # requests; spin-down would add cold-start on top of that.
+    autoDeployTrigger: commit
     # CPU inference is slow: a 30s clip takes roughly 2 minutes. The default
     # 100s request timeout would cut legitimate requests off.
     autoDeploy: true
