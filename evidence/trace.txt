@@ -1,0 +1,133 @@
+TRACE 5e599f0b86f57063e12cf2c37dad447d
+  pipeline.generate_subtitles
+  input: demo-hi.wav (hi-en)
+  status=ok spans=26 errors=4 duration=242387ms
+  tokens: in=743 out=575 total=1318
+
+  + AGENT  pipeline.generate_subtitles  +0ms  242387ms
+      pair=hi-en
+      models={"asr":"onnx-community/whisper-small","mt":"Xenova/opus-mt-hi-en","capt…
+      durationMs=29008
+      cueCount=9
+      needsHuman=0
+      stageMs={"probe":266,"decode":60,"transcribe":123385,"vad_align":452,"segment":…
+    + TOOL   probe  +1ms  266ms
+      + TOOL   tool.ffprobe  +1ms  265ms
+          command=ffprobe
+          filePath=/home/aditya/saaz/data/out/demo-hi.wav
+          timeoutMs=20000
+          exitCode=0
+          stdoutBytes=1713
+          durationMsObserved=265
+    + TOOL   decode  +267ms  60ms
+      + TOOL   tool.ffmpeg_decode  +267ms  57ms
+          command=ffmpeg
+          inputPath=/home/aditya/saaz/data/out/demo-hi.wav
+          bytes=demo-hi.wav
+          exitCode=0
+          stdoutBytes=0
+          durationMsObserved=57
+    + TOOL   transcribe  +327ms  123384ms
+      + MODEL  model.transcribe  +327ms  123384ms
+          slot=asr
+          modelId=onnx-community/whisper-small
+          license=MIT
+          dtype=q8
+          language=hi
+          audioSeconds=29
+          @69676ms word_timestamps_unavailable {"reason":"Model outputs must contain cross attentions to extra…
+          @123711ms hallucinations_dropped {"count":1}
+    + TOOL   vad_align  +123712ms  452ms
+      + MODEL  model.speech_boundaries  +123718ms  445ms
+          slot=vad
+          modelId=onnx-community/silero-vad
+          license=MIT
+          audioMs=29008
+          minSpeechMs=300
+          bridgeGapMs=260
+        + MODEL  model.vad_inference  +123719ms  443ms
+            windows=907
+            windowSamples=512
+    + TOOL   segment  +124164ms  0ms
+    + TOOL   glossary  +124164ms  1ms
+    + TOOL   translate  +124165ms  1984ms
+      + MODEL  model.translate_batch  +124165ms  1984ms
+          slot=mt
+          modelId=Xenova/opus-mt-hi-en
+          license=Apache-2.0
+          dtype=q8
+          pair=hi-en
+          cueCount=7
+          tokens in=70 out=91 (estimated)
+        + AGENT  mt.batch.retry  +124165ms  1984ms
+            maxAttempts=2
+            hasFallback=false
+          + MODEL  model.load  +124166ms  808ms
+              slot=mt
+              modelId=Xenova/opus-mt-hi-en
+              license=Apache-2.0
+              dtype=q8
+              cached=false
+    + TOOL   fit  +126149ms  114848ms
+      x MODEL  model.caption_reflow  +126150ms  66221ms
+          slot=caption
+          modelId=onnx-community/Qwen2.5-1.5B-Instruct
+          license=Apache-2.0
+          dtype=q8
+          maxChars=84
+          draftChars=89
+          tokens in=110 out=67 (estimated)
+          @161960ms over_budget {"attempt":1,"chars":265,"maxChars":84}
+          @183156ms over_budget {"attempt":2,"chars":330,"maxChars":84}
+          @192369ms over_budget {"attempt":3,"chars":245,"maxChars":84}
+          ERROR RetryExhaustedError: caption.retry failed after 2 attempts: caption 245 chars exceeds budget 84
+        x AGENT  caption.retry  +126150ms  66220ms
+            maxAttempts=2
+            hasFallback=true
+            @161960ms attempt_failed {"attempt":1,"willRetry":true,"error":"caption 265 chars exceed…
+            @183156ms attempt_failed {"attempt":2,"willRetry":false,"error":"caption 330 chars excee…
+            @183157ms trying_fallback {"afterAttempts":2}
+            @192369ms fallback_failed {"error":"caption 245 chars exceeds budget 84"}
+            ERROR RetryExhaustedError: caption.retry failed after 2 attempts: caption 245 chars exceeds budget 84
+          + MODEL  model.load  +126151ms  5692ms
+              slot=caption
+              modelId=onnx-community/Qwen2.5-1.5B-Instruct
+              license=Apache-2.0
+              dtype=q8
+          + MODEL  model.load  +183157ms  2581ms
+              slot=caption
+              modelId=HuggingFaceTB/SmolLM2-360M-Instruct
+              license=Apache-2.0
+              dtype=q8
+      x MODEL  model.caption_reflow  +192381ms  48614ms
+          slot=caption
+          modelId=onnx-community/Qwen2.5-1.5B-Instruct
+          license=Apache-2.0
+          dtype=q8
+          maxChars=84
+          draftChars=98
+          tokens in=109 out=72 (estimated)
+          @214432ms over_budget {"attempt":1,"chars":349,"maxChars":84}
+          @235708ms over_budget {"attempt":2,"chars":259,"maxChars":84}
+          @240995ms over_budget {"attempt":3,"chars":265,"maxChars":84}
+          ERROR RetryExhaustedError: caption.retry failed after 2 attempts: caption 265 chars exceeds budget 84
+        x AGENT  caption.retry  +192381ms  48614ms
+            maxAttempts=2
+            hasFallback=true
+            @214433ms attempt_failed {"attempt":1,"willRetry":true,"error":"caption 349 chars exceed…
+            @235708ms attempt_failed {"attempt":2,"willRetry":false,"error":"caption 259 chars excee…
+            @235709ms trying_fallback {"afterAttempts":2}
+            @240995ms fallback_failed {"error":"caption 265 chars exceeds budget 84"}
+            ERROR RetryExhaustedError: caption.retry failed after 2 attempts: caption 265 chars exceeds budget 84
+    + TOOL   translate_split_halves  +240997ms  1389ms
+      + MODEL  model.translate_batch  +240998ms  1388ms
+          slot=mt
+          modelId=Xenova/opus-mt-hi-en
+          license=Apache-2.0
+          dtype=q8
+          pair=hi-en
+          cueCount=2
+          tokens in=16 out=20 (estimated)
+        + AGENT  mt.batch.retry  +240998ms  1388ms
+            maxAttempts=2
+            hasFallback=false

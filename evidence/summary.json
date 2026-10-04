@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-10-04T08:46:12.441Z",
+  "traceId": "5e599f0b86f57063e12cf2c37dad447d",
+  "pipeline": {
+    "durationMs": 128927,
+    "stageMs": {
+      "probe": 266,
+      "decode": 60,
+      "transcribe": 123385,
+      "vad_align": 452,
+      "segment": 0,
+      "glossary": 1,
+      "translate": 1984,
+      "fit": 1390,
+      "translate_split_halves": 1389
+    },
+    "models": {
+      "asr": "onnx-community/whisper-small",
+      "mt": "Xenova/opus-mt-hi-en",
+      "caption": "onnx-community/Qwen2.5-1.5B-Instruct"
+    },
+    "clipSeconds": 29.008,
+    "cues": 9,
+    "needsHuman": 0,
+    "speechRegions": 7,
+    "timestampMode": "segment",
+    "transcriptChars": 279,
+    "droppedHallucinations": 1
+  },
+  "thirdPartyApis": [],
+  "offlineVerifiedBy": "npm run prove:offline",
+  "benchmarks": {
+    "asr": "npm run bench:asr  (whisper-small CER 0.165 vs whisper-base CER 1.00 on Hindi)",
+    "caption": "npm run bench:caption  (Qwen2.5-1.5B default: ~1/4 rewrites inside budget; SmolLM2-360M 0/4. All three candidates unreliable \u2014 the Fit solver guarantees constraints, the model only suggests wording.)"
+  },
+  "spanKinds": [
+    "agent",
+    "model",
+    "tool",
+    "db"
+  ],
+  "observability": {
+    "traceEndpoint": "GET /api/traces/:traceId/text",
+    "inProcess": true,
+    "requiresSentry": false
+  }
+}

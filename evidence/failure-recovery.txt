@@ -1,0 +1,20 @@
+DELIBERATE FAILURE DRILL
+
+requested budget : 12 characters
+machine draft    : 110 characters
+expected         : the model cannot comply, so the system must degrade,
+                   not truncate and not fail the request
+
+--- trace ---
+TRACE f965719d9b3c65006639f72c13dc6cfc
+  demo.recovery_scenario
+  input: failure drill: over_budget
+  status=ok spans=2 errors=2 duration=0ms
+  tokens: in=342 out=124 total=466
+  user-visible failures: 1
+    ! The caption could not be shortened automatically. It is flagged for review rather than truncated.
+
+
+RESULT: degraded gracefully.
+The request succeeded. The cue is marked "needs a human" with a reason,
+rather than being silently truncated to fit.

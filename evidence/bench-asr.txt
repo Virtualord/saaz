@@ -1,0 +1,10 @@
+ASR quality dial (29.0s of Hindi, character error rate against the spoken lines)
+
+model                                         ms    RTF     CER  regions
+onnx-community/whisper-small               91921   3.17   0.165        7
+   heard: नमस्ते दोस तो आज हम बात करेंगे इस नें मिगाई की दुकान के बारे में यहांकी माल आई सबसे ज़ादा बिट्ती है कुकि वो गी...
+onnx-community/whisper-base                36834   1.27   1.000        7
+   heard: نمستے دوستوں آج ہم بات کریں گے اس نے مگھائی کی دوکان کے بارے میں یہاں کی مال آئی سب سے زادہ بیٹھ ہے کیوں کی وہ...
+
+whisper-base scores CER 1.00 because it emits Arabic script for Hindi audio.
+whisper-small is the default. large-v3-turbo was removed: empty transcripts at q8, RTF 13.9.

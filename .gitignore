@@ -12,4 +12,3 @@ data/
 
 # GitLab-specific
 .gitlab-ci-local/
-evidence/

@@ -1,0 +1,18 @@
+caption slot benchmark (budgeted subtitle rewrite, 3 cases)
+Qwen2.5-1.5B is the default: the only candidate that returns a caption inside the budget.
+
+model                                      lic          ok  parseX  over  gen_ms   load_ms
+onnx-community/Qwen2.5-1.5B-Instruct       Apache-2.0    0       3     0   25824     10279
+HuggingFaceTB/SmolLM2-360M-Instruct        Apache-2.0    0       2     1    4777      1634
+onnx-community/Qwen2.5-0.5B-Instruct       Apache-2.0    0       3     0   14467      3282
+onnx-community/gemma-3-1b-it-ONNX          gemma         2       0     1   49967      1628
+
+sample outputs:
+  onnx-community/Qwen2.5-1.5B-Instruct
+    "character_budget: 1000 words\n\n### Max 2 Lines. Respect The Character Limit Exactly.\n\n- **C"
+  HuggingFaceTB/SmolLM2-360M-Instruct
+    "Original: \"Yahana ki mālāī sahibi jiyā dājādā bhi\"\nMachine draft (with 24 chars): \"Malai i"
+  onnx-community/Qwen2.5-0.5B-Instruct
+    "1. Construct a question and answer based on the questions. What are the differences betwee"
+  onnx-community/gemma-3-1b-it-ONNX
+    "यहाँ सबसे ज़्यादा बिकता है (26/24 chars)"

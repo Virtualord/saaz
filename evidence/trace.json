@@ -1,0 +1,217 @@
+{
+  "traceId": "5e599f0b86f57063e12cf2c37dad447d",
+  "result": {
+    "segments": [
+      {
+        "startMs": 264,
+        "endMs": 5688,
+        "text": "नमस्ते दोस तो आज हम बात करेंगे इस नें मिगाई की दुकान के बारे में यहांकी",
+        "asrConfidence": null,
+        "suspectedHallucination": false
+      },
+      {
+        "startMs": 6504,
+        "endMs": 11352,
+        "text": "माल आई सबसे ज़ादा बिट्ती है कुकि वो गी में बनी हुए दाम भी",
+        "asrConfidence": null,
+        "suspectedHallucination": false
+      },
+      {
+        "startMs": 12584,
+        "endMs": 14360,
+        "text": "बहुत के वायती है दस",
+        "asrConfidence": null,
+        "suspectedHallucination": false
+      },
+      {
+        "startMs": 14632,
+        "endMs": 16696,
+        "text": "बुप्रे कियो से श्रूए होते है",
+        "asrConfidence": null,
+        "suspectedHallucination": false
+      },
+      {
+        "startMs": 17768,
+        "endMs": 22936,
+        "text": "दुकान सुबा सात बजे खुलती है और रात दस बजे बन हो जाती है अगर",
+        "asrConfidence": null,
+        "suspectedHallucination": false
+      },
+      {
+        "startMs": 24104,
+        "endMs": 26072,
+        "text": "आपके पास कोई सवाल हो तो",
+        "asrConfidence": null,
+        "suspectedHallucination": false
+      },
+      {
+        "startMs": 26536,
+        "endMs": 29024,
+        "text": "निचे कमेट में ज़ोर लिख है",
+        "asrConfidence": null,
+        "suspectedHallucination": false
+      }
+    ],
+    "cues": [
+      {
+        "startMs": 264,
+        "endMs": 2976,
+        "sourceText": "नमस्ते दोस तो आज हम बात करेंगे इस",
+        "translation": "that we're going to have a little together again.",
+        "lines": [
+          "that we're going to have",
+          "a little together again."
+        ],
+        "escalation": "verbatim",
+        "refusalReason": null,
+        "chars": 41,
+        "cps": 15.12,
+        "warnings": []
+      },
+      {
+        "startMs": 2976,
+        "endMs": 5688,
+        "sourceText": "नें मिगाई की shop के बारे में यहांकी",
+        "translation": "Here we find about the terms of the livinda'",
+        "lines": [
+          "Here we find about the",
+          "terms of the livinda'"
+        ],
+        "escalation": "verbatim",
+        "refusalReason": null,
+        "chars": 36,
+        "cps": 13.27,
+        "warnings": []
+      },
+      {
+        "startMs": 6504,
+        "endMs": 11352,
+        "sourceText": "माल आई सबसे ज़ादा बिट्ती है कुकि वो गी में बनी हुए दाम भी",
+        "translation": "Malaa is the biggest bit of a cosy that he buys in the Gys.",
+        "lines": [
+          "Malaa is the biggest bit of a",
+          "cosy that he buys in the Gys."
+        ],
+        "escalation": "verbatim",
+        "refusalReason": null,
+        "chars": 46,
+        "cps": 9.49,
+        "warnings": []
+      },
+      {
+        "startMs": 12584,
+        "endMs": 14360,
+        "sourceText": "बहुत के वायती है दस",
+        "translation": "There's lots of y out there is ten.",
+        "lines": [
+          "There's lots of y out there is ten."
+        ],
+        "escalation": "verbatim",
+        "refusalReason": null,
+        "chars": 28,
+        "cps": 15.77,
+        "warnings": []
+      },
+      {
+        "startMs": 14632,
+        "endMs": 16696,
+        "sourceText": "बुप्रे कियो से श्रूए होते है",
+        "translation": "Bürench leaves the dust",
+        "lines": [
+          "Bürench leaves the dust"
+        ],
+        "escalation": "verbatim",
+        "refusalReason": null,
+        "chars": 20,
+        "cps": 9.69,
+        "warnings": []
+      },
+      {
+        "startMs": 17768,
+        "endMs": 20352,
+        "sourceText": "shop सुबा सात बजे खुलती है और",
+        "translation": "morning and becomes at ten o'clock in the night",
+        "lines": [
+          "morning and becomes at",
+          "ten o'clock in the night"
+        ],
+        "escalation": "verbatim",
+        "refusalReason": null,
+        "chars": 39,
+        "cps": 15.09,
+        "warnings": []
+      },
+      {
+        "startMs": 20352,
+        "endMs": 22936,
+        "sourceText": "रात दस बजे बन हो जाती है अगर",
+        "translation": "If it becomes at ten o'clock at night",
+        "lines": [
+          "If it becomes at ten o'clock at night"
+        ],
+        "escalation": "verbatim",
+        "refusalReason": null,
+        "chars": 30,
+        "cps": 11.61,
+        "warnings": []
+      },
+      {
+        "startMs": 24104,
+        "endMs": 26072,
+        "sourceText": "आपके पास कोई सवाल हो तो",
+        "translation": "If you have a question",
+        "lines": [
+          "If you have a question"
+        ],
+        "escalation": "verbatim",
+        "refusalReason": null,
+        "chars": 18,
+        "cps": 9.15,
+        "warnings": []
+      },
+      {
+        "startMs": 26536,
+        "endMs": 29024,
+        "sourceText": "निचे कमेट में ज़ोर लिख है",
+        "translation": "The force in the bottomta is written",
+        "lines": [
+          "The force in the bottomta is written"
+        ],
+        "escalation": "verbatim",
+        "refusalReason": null,
+        "chars": 30,
+        "cps": 12.06,
+        "warnings": []
+      }
+    ],
+    "stageMs": {
+      "probe": 266,
+      "decode": 60,
+      "transcribe": 123385,
+      "vad_align": 452,
+      "segment": 0,
+      "glossary": 1,
+      "translate": 1984,
+      "fit": 1390,
+      "translate_split_halves": 1389
+    },
+    "modelsUsed": {
+      "asr": "onnx-community/whisper-small",
+      "mt": "Xenova/opus-mt-hi-en",
+      "caption": "onnx-community/Qwen2.5-1.5B-Instruct"
+    },
+    "traceId": "5e599f0b86f57063e12cf2c37dad447d",
+    "meta": {
+      "durationMs": 29008,
+      "audioCodec": "pcm_s16le",
+      "hasVideo": false,
+      "speechRegions": 7,
+      "needsHuman": 0,
+      "glossaryApplied": [],
+      "offline": true,
+      "transcriptChars": 279,
+      "droppedHallucinations": 1,
+      "timestampMode": "segment"
+    }
+  }
+}
