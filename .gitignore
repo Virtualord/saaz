@@ -9,3 +9,6 @@ data/saaz.db
 *.log
 
 data/
+
+# GitLab-specific
+.gitlab-ci-local/

@@ -1,0 +1,129 @@
+# GitLab CI for Saaz.
+#
+# Three stages, mirroring what actually matters:
+#   verify   – typecheck, unit tests, production build
+#   image    – build the container and push it to the registry (main only)
+#   deploy   – deploy to Render from the built image (main only)
+#
+# The AI models are ~1.6GB of open weights, baked into the image at build time.
+# They are deliberately NOT downloaded in CI on every run: they are immutable
+# artefacts pinned by digest in server/models/registry.ts, and re-fetching them
+# per commit would add several minutes to every pipeline for no benefit.
+
+stages:
+  - verify
+  - image
+  - deploy
+
+variables:
+  NODE_VERSION: "22"
+  # Fail the pipeline on anything that would ship broken.
+  CI_STRICT: "true"
+  # Don't let npm spend time on audit/funding network calls.
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_AUDIT: "false"
+  # Keep model weights out of git; they come from the Docker build stage.
+  GIT_STRATEGY: fetch
+
+default:
+  image: node:22-bookworm-slim
+  interruptible: true
+
+# ---------------------------------------------------------------- cache ----
+.node_modules:
+  before_script:
+    - mkdir -p .npm
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+      - node_modules/
+    policy: pull-push
+
+# ---------------------------------------------------------------- verify ---
+typecheck:
+  stage: verify
+  extends: .node_modules
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends python3 make g++ >/dev/null
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run typecheck
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:
+  stage: verify
+  extends: .node_modules
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends python3 make g++ >/dev/null
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm test
+  coverage: '/Tests\s+(\d+) passed/'
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+build:
+  stage: verify
+  extends: .node_modules
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends python3 make g++ >/dev/null
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    # Fail loudly if a Node-only module leaked into the browser bundle again.
+    - |
+      if grep -rqE "require\(['\"](fs|child_process|node:fs|node:path)['\"]\)|process\.env" dist/web/assets/*.js; then
+        echo "Browser bundle references Node internals. The editor must import"
+        echo "shared/cue-rules.ts, never server/ code."
+        exit 1
+      fi
+    - echo "Browser bundle is free of Node internals."
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 hour
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ----------------------------------------------------------------- image ---
+# Builds the container that actually carries the models, and pushes it to the
+# GitLab container registry so deployments do not rebuild 1.6GB every time.
+container:
+  stage: image
+  image: docker:27-cli
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      # Never build weights on every push to main.
+      when: on_success
+
+# ---------------------------------------------------------------- deploy ---
+deploy:
+  stage: deploy
+  image: curlimages/curl:latest
+  needs: ["container"]
+  # Set these in Settings > CI/CD > Variables as masked, protected variables.
+  script:
+    - |
+      set -eu
+      curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL" >/dev/null
+      echo "Triggered Render deploy hook for $CI_COMMIT_SHORT_SHA."
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true

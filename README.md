@@ -111,10 +111,53 @@ All optional — it runs with no configuration at all.
 | `SENTRY_DSN` | unset | tracing; falls back to JSON on stdout |
 | `SAAZ_FFMPEG` / `SAAZ_FFPROBE` | `ffmpeg` / `ffprobe` | binary override |
 
+## The UI
+
+Landing page and app, both light theme, built with shadcn/ui on Tailwind v4:
+
+- `web/src/components/Landing.tsx` — hero, live pipeline listing, subtitle example,
+  guarantees, model/licence table, FAQ
+- `web/src/App.tsx` — upload, progress, results, cue editor, stage timings
+- `web/src/components/ui/` — shadcn primitives plus `status-badge.tsx`, which maps the five
+  fit outcomes onto semantic colours
+
+The palette lives in exactly one place, `web/src/styles.css`. There is deliberately **no dark
+theme**: this is a tool people open next to a video editor in daylight, so dark mode would be a
+preference rather than a feature.
+
+The browser bundle is guarded against importing server code — CI fails if `dist/web` ever
+references `process.env` or a Node builtin. That guard exists because the editor once imported
+the server's segmenter, which dragged `process.env` into the bundle and threw
+`ReferenceError: process is not defined` at runtime.
+
 ## Deploying
 
 `render.yaml` is a Render blueprint. Weights are baked into the image at build time, so the deployed
 service never contacts Hugging Face. CPU-only plan by design.
+
+### GitLab
+
+`.gitlab-ci.yml` defines three stages:
+
+| Stage | Job | What it does |
+| --- | --- | --- |
+| `verify` | `typecheck`, `test`, `build` | strict TS, 39 unit tests, production build, plus a bundle-leak guard |
+| `image` | `container` | builds the container, pushes to the GitLab registry (`main` only) |
+| `deploy` | `deploy` | manual job that triggers a Render deploy hook |
+
+Model weights are **not** fetched per commit — they are immutable artefacts pinned in
+`server/models/registry.ts`, and re-downloading 1.6GB on every push would cost several minutes per
+pipeline for no benefit.
+
+Publishing:
+
+```bash
+git remote add origin git@gitlab.com:<namespace>/saaz.git
+git push -u origin main
+```
+
+Then set `RENDER_DEPLOY_HOOK_URL` as a masked, protected CI/CD variable if you want the manual
+deploy job to work.
 
 ## Scripts
 
