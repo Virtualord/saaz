@@ -1,0 +1,11 @@
+node_modules/
+dist/
+data/models/
+data/uploads/
+data/out/
+data/saaz.db
+.env
+.DS_Store
+*.log
+
+data/

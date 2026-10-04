@@ -1,0 +1,34 @@
+# Render blueprint for Saaz.
+#
+# One web service, one region, CPU-only: the whole pipeline runs on CPU by
+# design, so no GPU plan is needed. Weights are baked into the image at build
+# time (see Dockerfile) so the deployed service never calls out to Hugging Face.
+services:
+  - type: web
+    name: saaz
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/health
+    # CPU inference is slow: a 30s clip takes roughly 2 minutes. The default
+    # 100s request timeout would cut legitimate requests off.
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SAAZ_MODEL_DIR
+        value: /app/data/models
+      - key: SAAZ_MAX_UPLOAD_MB
+        value: 200
+      # Optional. Without it, tracing is emitted as structured JSON on stdout.
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "1.0"
+    disk:
+      # Uploads and the SQLite job store. Job history is not the point of this
+      # demo, but losing a running job mid-request would be.
+      name: saaz-data
+      mountPath: /app/data
+      sizeGB: 1

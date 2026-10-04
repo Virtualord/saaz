@@ -1,0 +1,9 @@
+node_modules
+dist
+data/uploads
+data/out
+data/saaz.db
+data/saaz.db-*
+.git
+.env
+*.log

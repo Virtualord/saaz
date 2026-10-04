@@ -1,0 +1,56 @@
+{
+  "name": "saaz",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "tsx watch server/main.ts",
+    "dev:web": "vite",
+    "build": "npm run build:web && npm run build:api",
+    "build:web": "vite build",
+    "build:api": "tsc -p tsconfig.build.json",
+    "start": "node dist/server/main.js",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "fetch-models": "tsx server/scripts/fetch-models.ts",
+    "make-demo-asset": "tsx server/scripts/make-demo-asset.ts",
+    "bench:caption": "tsx server/scripts/bench-caption.ts",
+    "smoke:pipeline": "tsx server/scripts/smoke-pipeline.ts",
+    "smoke:asr": "tsx server/scripts/smoke-asr.ts",
+    "bench:asr": "tsx server/scripts/bench-asr.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "fetch:vad": "tsx server/scripts/vad-fetch.ts",
+    "prove:offline": "npm run build:api && tsx server/scripts/prove-offline.ts"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
+    "@sentry/node": "^11.4.0",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^18.0.5",
+    "express": "^4.22.3",
+    "multer": "^1.4.4",
+    "onnxruntime-node": "^1.30.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.3.0",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  }
+}
