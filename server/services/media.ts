@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 import { log } from '../core/logger.js';
+import { withSpan } from '../core/tracing.js';
 
 const exec = promisify(execFile);
 
@@ -21,18 +22,38 @@ export interface MediaInfo {
   height?: number;
 }
 
-async function run(cmd: string, args: string[], timeoutMs: number): Promise<string> {
-  try {
-    const { stdout } = await exec(cmd, args, {
-      timeout: timeoutMs,
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    return stdout;
-  } catch (err) {
-    const e = err as { stderr?: string; message?: string };
-    const detail = (e.stderr || e.message || '').trim().split('\n').slice(-3).join(' | ');
-    throw new Error(`${cmd} failed: ${detail || 'unknown error'}`);
-  }
+/**
+ * ffmpeg and ffprobe are external tools. They are instrumented as TOOL spans so a
+ * trace shows the boundary between "our code" and "a binary we shells out to",
+ * including the timeout case, which is the failure mode that actually bites.
+ */
+async function run(
+  cmd: string,
+  args: string[],
+  timeoutMs: number,
+  spanName: string,
+  attributes: Record<string, unknown> = {},
+): Promise<string> {
+  return withSpan(spanName, { kind: 'tool', attributes: { command: cmd, ...attributes } }, async (span) => {
+    const t0 = performance.now();
+    try {
+      const { stdout } = await exec(cmd, args, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 });
+      span.set('exitCode', 0);
+      span.set('stdoutBytes', stdout.length);
+      return stdout;
+    } catch (err) {
+      const e = err as { stderr?: string; message?: string; code?: number; killed?: boolean };
+      const detail = (e.stderr || e.message || '').trim().split('\n').slice(-3).join(' | ');
+      // Distinguish "we killed it" from "it failed": the fix differs entirely.
+      const timedOut = Boolean(e.killed) || /timed out|ETIMEDOUT/i.test(detail);
+      span.set('exitCode', e.code ?? null);
+      span.set('timedOut', timedOut);
+      span.fail(new Error(`${cmd} failed: ${detail || 'unknown error'}`), timedOut ? 'timeout' : 'error');
+      throw new Error(`${cmd} failed: ${detail || 'unknown error'}`);
+    } finally {
+      span.set('durationMsObserved', Math.round(performance.now() - t0));
+    }
+  });
 }
 
 /**
@@ -45,15 +66,12 @@ export async function probeMedia(filePath: string): Promise<MediaInfo> {
     FFPROBE,
     ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', filePath],
     config.limits.probeTimeoutMs,
+    'tool.ffprobe',
+    { filePath, timeoutMs: config.limits.probeTimeoutMs },
   );
   const parsed = JSON.parse(raw) as {
     format?: { duration?: string };
-    streams?: Array<{
-      codec_type?: string;
-      codec_name?: string;
-      width?: number;
-      height?: number;
-    }>;
+    streams?: Array<{ codec_type?: string; codec_name?: string; width?: number; height?: number }>;
   };
   const streams = parsed.streams ?? [];
   const audio = streams.find((s) => s.codec_type === 'audio');
@@ -88,6 +106,8 @@ export async function extractAudio(inputPath: string, outPath: string): Promise<
     FFMPEG,
     ['-y', '-i', inputPath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', outPath],
     config.limits.probeTimeoutMs,
+    'tool.ffmpeg_extract_audio',
+    { inputPath, outPath },
   );
   const { size } = await fs.stat(outPath);
   if (size < 1024) {
@@ -108,6 +128,8 @@ export async function decodeToFloat32(inputPath: string): Promise<Float32Array> 
       FFMPEG,
       ['-y', '-i', inputPath, '-vn', '-ac', '1', '-ar', '16000', '-f', 'f32le', '-acodec', 'pcm_f32le', outPath],
       config.limits.probeTimeoutMs,
+      'tool.ffmpeg_decode',
+      { inputPath, bytes: path.basename(inputPath) },
     );
     const buf = await fs.readFile(outPath);
     // Copy into a fresh Float32Array so the underlying Buffer can be GC'd.
@@ -119,12 +141,9 @@ export async function decodeToFloat32(inputPath: string): Promise<Float32Array> 
 
 export async function toolVersions(): Promise<{ ffmpeg: string; ffprobe: string } | null> {
   try {
-    const ff = await run(FFMPEG, ['-version'], 10_000);
-    const fp = await run(FFPROBE, ['-version'], 10_000);
-    return {
-      ffmpeg: ff.split('\n')[0] ?? 'unknown',
-      ffprobe: fp.split('\n')[0] ?? 'unknown',
-    };
+    const ff = await run(FFMPEG, ['-version'], 10_000, 'tool.ffmpeg_version');
+    const fp = await run(FFPROBE, ['-version'], 10_000, 'tool.ffprobe_version');
+    return { ffmpeg: ff.split('\n')[0] ?? 'unknown', ffprobe: fp.split('\n')[0] ?? 'unknown' };
   } catch {
     return null;
   }

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import * as ort from 'onnxruntime-node';
 import { config } from '../config.js';
 import { log } from '../core/logger.js';
+import { withSpan } from '../core/tracing.js';
 
 /**
  * Voice activity detection with Silero VAD (MIT), run directly on
@@ -190,12 +191,30 @@ export async function detectSpeech(
   const bridgeGapMs = opts.bridgeGapMs ?? 260;
   const audioMs = Math.round((audio.length / SAMPLE_RATE) * 1000);
 
+  return withSpan(
+    'model.speech_boundaries',
+    {
+      kind: 'model',
+      attributes: {
+        slot: 'vad',
+        modelId: VAD_MODEL_ID,
+        license: VAD_LICENSE,
+        audioMs,
+        minSpeechMs,
+        bridgeGapMs,
+      },
+    },
+    async (span) => {
   let regions: SpeechRegion[];
   let engine: string;
 
   if (vadAvailable()) {
     try {
-      const probs = await sileroProbabilities(audio);
+      const probs = await withSpan(
+        'model.vad_inference',
+        { kind: 'model', attributes: { windows: probs_windowCount(audio), windowSamples: VAD_WINDOW } },
+        async () => sileroProbabilities(audio),
+      );
       regions = probsToRegions(probs, {
         startThreshold: 0.6,
         endThreshold: 0.35,
@@ -204,6 +223,7 @@ export async function detectSpeech(
         padMs: 120,
       });
       engine = 'silero-vad';
+      span.set('rawRegions', regions.length);
     } catch (err) {
       log.warn('vad.silero_failed_falling_back', { err });
       regions = energyRegions(audio);
@@ -217,6 +237,17 @@ export async function detectSpeech(
   const tidied = tidy(regions, bridgeGapMs, minSpeechMs);
   const speechMs = tidied.reduce((n, r) => n + (r.endMs - r.startMs), 0);
 
+  span.setAll({
+    engine,
+    regions: tidied.length,
+    speechMs,
+    speechRatio: audioMs > 0 ? Number((speechMs / audioMs).toFixed(2)) : 0,
+  });
+  if (engine === 'energy-fallback') {
+    // Recorded as an event, not an error: degradation we chose, loudly.
+    span.event('degraded_to_energy_fallback', { reason: 'silero unavailable or failed' });
+  }
+
   log.info('vad.done', {
     engine,
     license: engine === 'silero-vad' ? VAD_LICENSE : undefined,
@@ -227,4 +258,11 @@ export async function detectSpeech(
   });
 
   return tidied;
+    },
+  );
+}
+
+/** Number of 512-sample windows the VAD will iterate over. */
+function probs_windowCount(audio: Float32Array): number {
+  return Math.max(1, Math.ceil(audio.length / VAD_WINDOW));
 }

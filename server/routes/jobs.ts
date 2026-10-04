@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { log } from '../core/logger.js';
 import { runPipeline, toSrt, toVtt, auditCues } from '../services/pipeline.js';
 import { createJob, getJob, listJobs, saveEditedCues, saveJobResult } from '../db/jobs.js';
+import { withTrace } from '../core/tracing.js';
 import { defaultSelection, isKnownPair, mtModelForPair } from '../models/registry.js';
 import { canRunOffline } from '../models/loader.js';
 import { LanguagePairSchema, CueSchema } from '../../shared/types.js';
@@ -74,70 +75,91 @@ jobsRouter.post(
       return;
     }
 
-    const id = randomUUID();
-    // Sanitise the filename: it is used as a path segment.
-    const safeName = path.basename(req.file.originalname).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80);
-    const inputPath = path.join(config.paths.uploadDir, `${id}${ext}`);
-    await fs.mkdir(path.dirname(inputPath), { recursive: true });
-    await fs.writeFile(inputPath, req.file.buffer);
+  await withTrace(
+    'request.submit_media',
+    { userInput: req.file?.originalname ?? 'unknown', attributes: { pair, bytes: req.file?.size ?? 0, extension: ext } },
+    async () => {
+      // `req.file` was validated above, but the narrowing does not survive
+      // entering this closure.
+      const upload = req.file;
+      if (!upload) {
+        res.status(400).json({ error: 'no_file', message: 'Attach a file as "file".' });
+        return;
+      }
+      const id = randomUUID();
+      // Sanitise the filename: it is used as a path segment.
+      const safeName = path.basename(upload.originalname).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80);
+      const inputPath = path.join(config.paths.uploadDir, `${id}${ext}`);
+      await fs.mkdir(path.dirname(inputPath), { recursive: true });
+      await fs.writeFile(inputPath, upload.buffer);
 
-    createJob({ id, sourceName: safeName, inputPath, pair, modelsUsed: { ...selection, ...(mt ? { mt: mt.id } : {}) } });
-
-    const offline = canRunOffline({ ...selection, mt: mt?.id ?? '' }, pair);
-    if (!offline) {
-      log.warn('job.models_not_cached', { id, pair });
-    }
-
-    try {
-      const result = await runPipeline({
+      await createJob({
+        id,
+        sourceName: safeName,
         inputPath,
-        sourceName: safeName,
         pair,
-        models: { ...selection, ...(mt ? { mt: mt.id } : {}) },
-      });
-
-      saveJobResult({
-        id,
-        status: 'done',
-        segments: result.segments,
-        cues: result.cues,
-        stageMs: result.stageMs,
-        modelsUsed: result.modelsUsed,
-      });
-
-      res.json({
-        id,
-        status: 'done',
-        sourceName: safeName,
-        pair,
-        segments: result.segments,
-        cues: result.cues,
-        stageMs: result.stageMs,
-        modelsUsed: result.modelsUsed,
-        meta: { ...result.meta, offline, pair },
-        qa: auditCues(result.cues),
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      saveJobResult({
-        id,
-        status: 'failed',
-        segments: [],
-        cues: [],
-        stageMs: {},
         modelsUsed: { ...selection, ...(mt ? { mt: mt.id } : {}) },
-        error: message,
       });
-      log.error('job.failed', { id, source: safeName, err });
-      res.status(500).json({ error: 'pipeline_failed', message, id });
-    }
+
+      const offline = canRunOffline({ ...selection, mt: mt?.id ?? '' }, pair);
+      if (!offline) log.warn('job.models_not_cached', { id, pair });
+
+      try {
+        const result = await runPipeline({
+          inputPath,
+          sourceName: safeName,
+          pair,
+          models: { ...selection, ...(mt ? { mt: mt.id } : {}) },
+        });
+
+        // DB write happens inside the trace, so a judge sees the persistence
+        // step as a child span rather than something that happened afterwards.
+        await saveJobResult({
+          id,
+          status: 'done',
+          segments: result.segments,
+          cues: result.cues,
+          stageMs: result.stageMs,
+          modelsUsed: result.modelsUsed,
+        });
+
+        res.json({
+          id,
+          status: 'done',
+          traceId: result.traceId,
+          traceUrl: `/api/traces/${result.traceId}/text`,
+          sourceName: safeName,
+          pair,
+          segments: result.segments,
+          cues: result.cues,
+          stageMs: result.stageMs,
+          modelsUsed: result.modelsUsed,
+          meta: { ...result.meta, offline, pair },
+          qa: auditCues(result.cues),
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        await saveJobResult({
+          id,
+          status: 'failed',
+          segments: [],
+          cues: [],
+          stageMs: {},
+          modelsUsed: { ...selection, ...(mt ? { mt: mt.id } : {}) },
+          error: message,
+        });
+        log.error('job.failed', { id, source: safeName, err });
+        res.status(500).json({ error: 'pipeline_failed', message, id });
+      }
+    },
+  );
   }),
 );
 
 jobsRouter.get(
   '/',
   ah(async (_req, res) => {
-    const jobs = listJobs(25);
+    const jobs = await listJobs(25);
     res.json(
       jobs.map((j) => ({
         id: j.id,
@@ -155,7 +177,7 @@ jobsRouter.get(
 jobsRouter.get(
   '/:id',
   ah(async (req, res) => {
-    const job = getJob(String(req.params.id));
+    const job = await getJob(String(req.params.id));
     if (!job) {
       res.status(404).json({ error: 'not_found', message: 'No such job.' });
       return;
@@ -170,7 +192,7 @@ const EditBodySchema = z.object({ cues: z.array(CueSchema).min(1) });
 jobsRouter.patch(
   '/:id/cues',
   ah(async (req, res) => {
-    const job = getJob(String(req.params.id));
+    const job = await getJob(String(req.params.id));
     if (!job) {
       res.status(404).json({ error: 'not_found', message: 'No such job.' });
       return;
@@ -181,7 +203,7 @@ jobsRouter.patch(
       return;
     }
     try {
-      const saved = saveEditedCues(job.id, parsed.data.cues);
+      const saved = await saveEditedCues(job.id, parsed.data.cues);
       res.json({ id: job.id, cues: saved, qa: auditCues(saved) });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Invalid cue';
@@ -193,7 +215,7 @@ jobsRouter.patch(
 jobsRouter.get(
   '/:id/export.:format(srt|vtt)',
   ah(async (req, res) => {
-    const job = getJob(String(req.params.id));
+    const job = await getJob(String(req.params.id));
     if (!job) {
       res.status(404).json({ error: 'not_found', message: 'No such job.' });
       return;

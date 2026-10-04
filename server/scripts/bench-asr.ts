@@ -8,6 +8,7 @@
  * Run:  npm run bench:asr
  */
 import path from 'node:path';
+import fs from 'node:fs';
 import { config, ensureDirs } from '../config.js';
 import { log } from '../core/logger.js';
 import { decodeToFloat32, toolVersions } from '../services/media.js';
@@ -46,7 +47,10 @@ function cer(reference: string, hypothesis: string): number {
 
 const CANDIDATES = process.argv.slice(2).length
   ? process.argv.slice(2)
-  : ['onnx-community/whisper-small', 'onnx-community/whisper-base', 'onnx-community/whisper-large-v3-turbo'];
+  // Only models still in the ASR slot. large-v3-turbo was benchmarked and then
+  // removed from the registry: at q8 it returned empty transcripts (CER 1.00)
+  // and cost RTF 13.9, so shipping it would have been shipping something broken.
+  : ['onnx-community/whisper-small', 'onnx-community/whisper-base'];
 
 async function main(): Promise<void> {
   const target = path.join(config.paths.outDir, 'demo-hi.wav');
@@ -54,8 +58,14 @@ async function main(): Promise<void> {
   const audio = await decodeToFloat32(target);
   const audioMs = Math.round((audio.length / 16000) * 1000);
 
-  console.log(`\n=== ASR quality dial (${(audioMs / 1000).toFixed(1)}s of Hindi) ===\n`);
-  console.log(['model'.padEnd(40), 'ms'.padStart(7), 'RTF'.padStart(6), 'CER'.padStart(7), 'regions'.padStart(8)].join(' '));
+  const report: string[] = [];
+  const say = (line = '') => {
+    console.log(line);
+    report.push(line);
+  };
+  say(`ASR quality dial (${(audioMs / 1000).toFixed(1)}s of Hindi, character error rate against the spoken lines)`);
+  say();
+  say(['model'.padEnd(40), 'ms'.padStart(7), 'RTF'.padStart(6), 'CER'.padStart(7), 'regions'.padStart(8)].join(' '));
 
   for (const modelId of CANDIDATES) {
     const t0 = Date.now();
@@ -69,7 +79,7 @@ async function main(): Promise<void> {
       const reference = TRUTH.join(' ');
       const score = cer(reference, hypothesis);
 
-      console.log(
+      say(
         [
           modelId.padEnd(40),
           String(ms).padStart(7),
@@ -78,12 +88,16 @@ async function main(): Promise<void> {
           String(regions.length).padStart(8),
         ].join(' '),
       );
-      console.log(`   heard: ${hypothesis.slice(0, 110)}...`);
+      say(`   heard: ${hypothesis.slice(0, 110)}...`);
     } catch (err) {
-      console.log(`${modelId.padEnd(40)}  FAILED: ${err instanceof Error ? err.message : String(err)}`);
+      say(`${modelId.padEnd(40)}  FAILED: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  console.log();
+  say();
+  say('whisper-base scores CER 1.00 because it emits Arabic script for Hindi audio.');
+  say('whisper-small is the default. large-v3-turbo was removed: empty transcripts at q8, RTF 13.9.');
+  fs.mkdirSync(config.paths.outDir, { recursive: true });
+  fs.writeFileSync(path.join(config.paths.outDir, 'bench-asr.txt'), report.join('\n'), 'utf8');
   log.info('bench.asr_done', { audioMs });
 }
 

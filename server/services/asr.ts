@@ -1,6 +1,7 @@
 import { loadModel } from '../models/loader.js';
 import { findModel } from '../models/registry.js';
 import { log } from '../core/logger.js';
+import { withSpan } from '../core/tracing.js';
 import type { Segment } from '../../shared/types.js';
 
 /**
@@ -24,17 +25,10 @@ export interface AsrResult {
   /** Which timestamp path we actually got. Surfaced in the UI for honesty. */
   timestampMode: 'word' | 'segment';
   audioMs: number;
+  audioSeconds: number;
+  rawSegmentCount: number;
+  droppedHallucinations: number;
 }
-
-/**
- * The narrow contract we actually rely on from the ASR pipeline. Declaring it
- * explicitly keeps the call sites honest instead of leaning on a union of every
- * pipeline type the library exports.
- */
-type AsrPipeline = (
-  audio: Float32Array,
-  opts: Record<string, unknown>,
-) => Promise<{ text?: string; chunks?: RawChunk[] }>;
 
 interface RawChunk {
   text?: string;
@@ -89,71 +83,118 @@ function markHallucinations(segments: Segment[], audioMs: number): Segment[] {
   });
 }
 
+/**
+ * The narrow contract we rely on from the ASR pipeline. transformers.js types
+ * `pipeline()` as a union of all supported tasks, so each call site casts to
+ * what it actually uses instead of reaching for `any`.
+ */
+type AsrPipeline = (audio: Float32Array, opts: Record<string, unknown>) => Promise<{ text?: string; chunks?: RawChunk[] }>;
+
 export async function transcribe(
   audio: Float32Array,
   opts: { language: string; modelId: string; translateToEnglish?: boolean },
 ): Promise<AsrResult> {
   const model = findModel('asr', opts.modelId);
-  const pipe = (await loadModel('asr', opts.modelId)) as unknown as AsrPipeline;
 
-  const common = {
-    chunk_length_s: 30,
-    stride_length_s: 5,
-    // Forcing the language avoids Whisper misdetecting short clips, which is
-    // common and would silently produce the wrong script.
-    language: opts.language,
-    task: opts.translateToEnglish ? ('translate' as const) : ('transcribe' as const),
-  };
+  return withSpan(
+    'model.transcribe',
+    {
+      kind: 'model',
+      attributes: {
+        slot: 'asr',
+        modelId: model.id,
+        license: model.license,
+        dtype: model.dtype,
+        language: opts.language,
+        audioSeconds: Math.round((audio.length / 16000) * 10) / 10,
+        task: opts.translateToEnglish ? 'translate' : 'transcribe',
+      },
+    },
+    async (span) => {
+      const pipe = (await loadModel('asr', opts.modelId)) as unknown as AsrPipeline;
 
-  let raw: { text?: string; chunks?: RawChunk[] };
-  let timestampMode: 'word' | 'segment' = 'word';
-
-  try {
-    raw = await pipe(audio, { ...common, return_timestamps: 'word' });
-    if (!raw.chunks?.length) throw new Error('no word chunks returned');
-  } catch (err) {
-    log.warn('asr.word_timestamps_unavailable', { model: model.id, err: err instanceof Error ? err.message : String(err) });
-    raw = await pipe(audio, { ...common, return_timestamps: true });
-    timestampMode = 'segment';
-  }
-
-  const chunks = raw.chunks ?? [];
-  const segments: Segment[] = chunks
-    .map((c) => {
-      const [start, end] = c.timestamp ?? [];
-      const text = (c.text ?? '').trim();
-      // avg_logprob is a log probability; -1.0 is a reasonable "the model was unsure" line.
-      const conf = typeof c.avg_logprob === 'number' ? Math.min(1, Math.max(0, Math.exp(c.avg_logprob))) : null;
-      return {
-        startMs: toMs(start),
-        endMs: toMs(end) || toMs(start) + 400,
-        text,
-        asrConfidence: conf,
-        suspectedHallucination: false,
+      const common = {
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        // Forcing the language avoids Whisper misdetecting short clips, which is
+        // common and would silently produce the wrong script.
+        language: opts.language,
+        task: opts.translateToEnglish ? ('translate' as const) : ('transcribe' as const),
       };
-    })
-    // Whisper emits timestamp-only chunks with empty text; they carry no signal.
-    .filter((s) => s.text.length > 0)
-    // A zero-width span cannot be displayed, so give it a minimal readable width.
-    .map((s) => (s.endMs <= s.startMs ? { ...s, endMs: s.startMs + 600 } : s));
 
-  const audioMsTotal = Math.round((audio.length / 16000) * 1000);
-  const filtered = markHallucinations(segments, audioMsTotal).filter((s) => !s.suspectedHallucination);
-  const dropped = segments.length - filtered.length;
+      let raw: { text?: string; chunks?: RawChunk[] };
+      let timestampMode: 'word' | 'segment' = 'word';
 
-  log.info('asr.done', {
-    model: model.id,
-    license: model.license,
-    timestampMode,
-    rawSegments: segments.length,
-    droppedHallucinations: dropped,
-    kept: filtered.length,
-  });
+      try {
+        raw = await pipe(audio, { ...common, return_timestamps: 'word' });
+        if (!raw.chunks?.length) throw new Error('no word chunks returned');
+      } catch (err) {
+        // Not fatal: this ONNX export genuinely cannot emit word timestamps, so
+        // the VAD stage supplies real boundaries instead.
+        span.event('word_timestamps_unavailable', {
+          reason: err instanceof Error ? err.message.slice(0, 120) : String(err),
+          mitigation: 'falling back to segment timings, then VAD alignment',
+        });
+        log.warn('asr.word_timestamps_unavailable', {
+          model: model.id,
+          err: err instanceof Error ? err.message : String(err),
+        });
+        raw = await pipe(audio, { ...common, return_timestamps: true });
+        timestampMode = 'segment';
+      }
 
-  return {
-    segments: filtered,
-    language: opts.language,
-    timestampMode,
-    audioMs: audioMsTotal,
-  };
+      span.set('timestampMode', timestampMode);
+
+      const chunks = raw.chunks ?? [];
+      const segments: Segment[] = chunks
+        .map((c) => {
+          const [start, end] = c.timestamp ?? [];
+          const text = (c.text ?? '').trim();
+          // avg_logprob is a log probability; exp() puts it back on 0..1.
+          const conf = typeof c.avg_logprob === 'number' ? Math.min(1, Math.max(0, Math.exp(c.avg_logprob))) : null;
+          return {
+            startMs: toMs(start),
+            endMs: toMs(end) || toMs(start) + 400,
+            text,
+            asrConfidence: conf,
+            suspectedHallucination: false,
+          };
+        })
+        // Whisper emits timestamp-only chunks with empty text; they carry no signal.
+        .filter((s) => s.text.length > 0)
+        // A zero-width span cannot be displayed, so give it a minimal readable width.
+        .map((s) => (s.endMs <= s.startMs ? { ...s, endMs: s.startMs + 600 } : s));
+
+      const audioMsTotal = Math.round((audio.length / 16000) * 1000);
+      const filtered = markHallucinations(segments, audioMsTotal).filter((s) => !s.suspectedHallucination);
+      const dropped = segments.length - filtered.length;
+
+      span.setAll({
+        rawSegments: segments.length,
+        keptSegments: filtered.length,
+        droppedHallucinations: dropped,
+        transcriptChars: filtered.reduce((n, s) => n + s.text.length, 0),
+      });
+      if (dropped > 0) span.event('hallucinations_dropped', { count: dropped });
+
+      log.info('asr.done', {
+        model: model.id,
+        license: model.license,
+        timestampMode,
+        rawSegments: segments.length,
+        droppedHallucinations: dropped,
+        kept: filtered.length,
+      });
+
+      return {
+        segments: filtered,
+        language: opts.language,
+        timestampMode,
+        audioMs: audioMsTotal,
+        audioSeconds: Math.round((audio.length / 16000) * 10) / 10,
+        rawSegmentCount: segments.length,
+        droppedHallucinations: dropped,
+      };
+    },
+  );
 }

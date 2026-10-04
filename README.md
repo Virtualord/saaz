@@ -57,18 +57,28 @@ Every default was chosen from a benchmark, not from reputation. Both are reprodu
 
 ```bash
 npm run bench:asr        # Whisper size vs accuracy (CER) on Hindi
-npm run bench:caption    # which small LM can actually emit budgeted JSON
+npm run bench:caption    # can any small LM compress a caption to a character budget?
 npm run prove:offline    # runs the pipeline with all outbound network poisoned
+npm run evidence         # regenerates everything in evidence/ from a live run
 ```
 
-Findings worth knowing:
+Findings worth knowing — including the ones that contradicted us:
 
 - **Whisper-base emits Arabic script for Hindi audio** (CER 1.00). whisper-small scores 0.165.
   We also tried `whisper-large-v3-turbo`: at `q8` it returned *empty* transcripts and cost RTF 13.9,
   so it was removed rather than shipped broken.
-- **Qwen2.5-0.5B and 1.5B could not do this task.** Both failed to produce parseable JSON and
-  degenerated into repetition. SmolLM2-360M returned valid JSON first try, 2.5× faster, Apache-2.0.
-  Smaller model, better result — which is why the benchmark exists.
+- **No small open model we tried can reliably compress a caption to a character budget.**
+  Qwen2.5-1.5B lands inside budget on roughly 1 in 4 attempts; SmolLM2-360M is fluent and overran
+  all four; Qwen2.5-0.5B echoes the instruction. Requiring JSON output made every one of them
+  worse — they emit the schema as literal text — so the prompt is plain text and we do the
+  formatting ourselves.
+
+  An earlier version of this README claimed the opposite, that SmolLM2-360M succeeded where Qwen
+  failed. That came from a test that omitted `repetition_penalty`. The benchmark caught it; the
+  registry now records the measured numbers.
+
+  **This is why the Fit solver is deterministic.** The model suggests wording; the solver enforces
+  the constraints. If the model fails, the cue is flagged for a human, never truncated.
 - **The `onnx-community` Whisper export has no cross-attention outputs**, so it cannot emit word
   timestamps. Its segment timings collapse into uniform 3-second blocks that match nothing in the
   audio. We found this by inspecting real output, and fixed it with Silero VAD instead of pretending
@@ -76,6 +86,48 @@ Findings worth knowing:
 - **Open MT has vocabulary gaps on domain terms.** `मालाई` (malai, the sweet) translates to *"by
   Miley"*. We ruled out tokenisation bugs by normalising nukta and observing identical output. So
   Saaz ships a **glossary**: terms the user pins, substituted before translation.
+
+## Observability
+
+Traces are first-party and in-process. No vendor, no DSN, no network — which is the only way the
+"runs offline" claim stays testable.
+
+| Span kind | Covers |
+| --- | --- |
+| `AGENT` | the request root, the pipeline, and each retry/fallback policy |
+| `MODEL` | ASR, VAD, translation, caption rewrite — with model id, licence, dtype, token usage |
+| `TOOL` | ffmpeg / ffprobe, with exit code and whether we killed it on timeout |
+| `DB` | every SQLite statement, with row counts and payload bytes |
+
+```
+curl localhost:8080/api/traces            # recent traces
+curl localhost:8080/api/traces/<id>/text  # one request as an indented tree
+```
+
+The text rendering exists so a judge can read one request end to end in a terminal:
+
+```
++ AGENT  request.submit_media          181353ms
+  + DB     db.insert_job                      1ms
+  + AGENT  pipeline.generate_subtitles    181331ms
+    + TOOL   transcribe                   80406ms
+      + MODEL  model.transcribe           80405ms   license=MIT dtype=q8
+          @24921ms word_timestamps_unavailable
+          @80723ms hallucinations_dropped {count:1}
+    + TOOL   fit                         96406ms
+      x MODEL  model.caption_reflow      50906ms
+          @117762ms over_budget {chars:265, maxChars:84}
+```
+
+Set `SENTRY_DSN` to forward spans to Sentry as well; without it everything stays local.
+`SAAZ_EMIT_SPANS=true` additionally writes one JSON line per finished span.
+
+### Handled failure
+
+`POST /api/traces/demo/failure` runs a real drill: ask the caption model to fit 110 characters
+into 12. It cannot, and that is the point. The system retries, falls back to a different
+open-weight model, and when that also fails, **flags the cue for a human instead of truncating**.
+The request still succeeds. `evidence/failure-recovery.txt` is the captured transcript.
 
 ## Architecture notes
 

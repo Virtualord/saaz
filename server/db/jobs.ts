@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { config, ensureDirs } from '../config.js';
 import { log } from '../core/logger.js';
+import { withSpan } from '../core/tracing.js';
 import { CueSchema, JobSchema, type Cue, type Job, type JobStatus, type Segment } from '../../shared/types.js';
 
 /**
@@ -81,33 +82,54 @@ function rowToJob(row: JobRow): Job {
   });
 }
 
-export function createJob(input: {
+/**
+ * Every statement is traced as a DB span carrying the row count.
+ *
+ * `rows` matters more than `durationMs` for SQLite: a write that suddenly
+ * affects many rows is the thing worth noticing, and a bare millisecond figure
+ * hides it.
+ */
+async function traced<T>(operation: string, fn: () => T, attributes: Record<string, unknown> = {}): Promise<T> {
+  return withSpan(`db.${operation}`, { kind: 'db', attributes }, async (span) => {
+    const t0 = performance.now();
+    const out = fn();
+    span.set('durationMsObserved', Math.round(performance.now() - t0));
+    return out;
+  });
+}
+
+export async function createJob(input: {
   id: string;
   sourceName: string;
   inputPath: string;
   pair: string;
   modelsUsed: Record<string, string>;
-}): void {
+}): Promise<void> {
   const now = new Date().toISOString();
-  insertStmt.run({
-    id: input.id,
-    status: 'queued',
-    source_name: input.sourceName,
-    input_path: input.inputPath,
-    pair: input.pair,
-    models_used: JSON.stringify(input.modelsUsed),
-    stage_ms: '{}',
-    segments: '[]',
-    cues: '[]',
-    meta: '{}',
-    error: null,
-    created_at: now,
-    updated_at: now,
-  });
+  await traced(
+    'insert_job',
+    () =>
+      insertStmt.run({
+        id: input.id,
+        status: 'queued',
+        source_name: input.sourceName,
+        input_path: input.inputPath,
+        pair: input.pair,
+        models_used: JSON.stringify(input.modelsUsed),
+        stage_ms: '{}',
+        segments: '[]',
+        cues: '[]',
+        meta: '{}',
+        error: null,
+        created_at: now,
+        updated_at: now,
+      }),
+    { jobId: input.id, source: input.sourceName, pair: input.pair },
+  );
   log.info('db.create_job', { id: input.id, source: input.sourceName });
 }
 
-export function saveJobResult(input: {
+export async function saveJobResult(input: {
   id: string;
   status: JobStatus;
   segments: Segment[];
@@ -115,37 +137,45 @@ export function saveJobResult(input: {
   stageMs: Record<string, number>;
   modelsUsed: Record<string, string>;
   error?: string | null;
-}): void {
+}): Promise<void> {
   // Validate before persisting: a malformed cue must never reach a render.
   const cues = input.cues.map((c) => CueSchema.parse(c));
-  updateStmt.run({
-    id: input.id,
-    status: input.status,
-    cues: JSON.stringify(cues),
-    stage_ms: JSON.stringify(input.stageMs),
-    models_used: JSON.stringify(input.modelsUsed),
-    error: input.error ?? null,
-    updated_at: new Date().toISOString(),
-  });
+  await traced(
+    'update_job',
+    () =>
+      updateStmt.run({
+        id: input.id,
+        status: input.status,
+        cues: JSON.stringify(cues),
+        stage_ms: JSON.stringify(input.stageMs),
+        models_used: JSON.stringify(input.modelsUsed),
+        error: input.error ?? null,
+        updated_at: new Date().toISOString(),
+      }),
+    { jobId: input.id, status: input.status, rows: cues.length, bytes: JSON.stringify(cues).length },
+  );
   log.info('db.save_job', { id: input.id, status: input.status, cues: cues.length });
 }
 
 /** Replace the cues after a human edit, so exports reflect the review. */
-export function saveEditedCues(id: string, cues: Cue[]): Cue[] {
+export async function saveEditedCues(id: string, cues: Cue[]): Promise<Cue[]> {
   const validated = cues.map((c) => CueSchema.parse(c));
-  db.prepare('UPDATE jobs SET cues = ?, updated_at = ? WHERE id = ?').run(
-    JSON.stringify(validated),
-    new Date().toISOString(),
-    id,
+  const payload = JSON.stringify(validated);
+  await traced(
+    'update_cues',
+    () =>
+      db.prepare('UPDATE jobs SET cues = ?, updated_at = ? WHERE id = ?').run(payload, new Date().toISOString(), id),
+    { jobId: id, rows: validated.length, bytes: payload.length },
   );
   return validated;
 }
 
-export function getJob(id: string): Job | null {
-  const row = selectStmt.get(id) as JobRow | undefined;
+export async function getJob(id: string): Promise<Job | null> {
+  const row = await traced('select_job', () => selectStmt.get(id) as JobRow | undefined, { jobId: id });
   return row ? rowToJob(row) : null;
 }
 
-export function listJobs(limit = 25): Job[] {
-  return (listStmt.all(limit) as JobRow[]).map(rowToJob);
+export async function listJobs(limit = 25): Promise<Job[]> {
+  const rows = await traced('list_jobs', () => listStmt.all(limit) as JobRow[], { limit });
+  return rows.map(rowToJob);
 }

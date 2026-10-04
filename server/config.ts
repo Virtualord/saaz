@@ -41,6 +41,16 @@ export const config = {
   observability: {
     sentryDsn: process.env.SENTRY_DSN ?? null,
     tracesSampleRate: Number.parseFloat(envStr('SENTRY_TRACES_SAMPLE_RATE', '1.0')),
+    /**
+     * Emit one structured JSON line per finished span.
+     *
+     * Off by default because the in-memory trace store plus the /api/traces
+     * inspector already cover inspection, and a log line per span is noise in
+     * normal operation. Turn it on when triaging.
+     */
+    emitJsonSpans: envStr('SAAZ_EMIT_SPANS', 'false') === 'true',
+    /** Retained traces in the ring buffer. */
+    traceBufferSize: envInt('SAAZ_TRACE_BUFFER', 60),
   },
 } as const;
 

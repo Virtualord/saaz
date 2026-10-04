@@ -20,7 +20,7 @@ ensureDirs();
 const WANTED: Record<Slot, string[]> = {
   asr: ['onnx-community/whisper-small'],
   mt: ['Xenova/opus-mt-hi-en'],
-  caption: ['HuggingFaceTB/SmolLM2-360M-Instruct'],
+  caption: ['onnx-community/Qwen2.5-1.5B-Instruct'],
 };
 
 async function main(): Promise<void> {

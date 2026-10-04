@@ -7,6 +7,7 @@ import { alignToRegions } from '../server/services/align.js';
 import { subtitleConstraints as C, type Cue, type Segment } from '../shared/types.js';
 import { toSrt, toVtt } from '../server/services/pipeline.js';
 import { layoutLines } from '../shared/cue-rules.js';
+import { cleanOutput } from '../server/services/caption.js';
 
 const out0 = (segments: Segment[]) => segments.map((s) => s.text).join(' ');
 
@@ -359,5 +360,51 @@ describe('browser safety', () => {
     };
     walk(dir);
     expect(offenders).toEqual([]);
+  });
+});
+
+// Guards the plain-text caption path. Small models wrap answers in quotes,
+// echo the instruction, or answer the format instead of the task; each must be
+// rejected so the Fit solver escalates instead of shipping it.
+describe('cleanOutput — caption output validation', () => {
+  it('accepts a plain caption', () => {
+    expect(cleanOutput('The store starts around 7 AM.')).toBe('The store starts around 7 AM.');
+  });
+
+  it('strips wrapping quotes', () => {
+    expect(cleanOutput('"The store starts around 7 AM."')).toBe('The store starts around 7 AM.');
+  });
+
+  it('collapses whitespace and newlines', () => {
+    expect(cleanOutput('  The  shop\n opens  ')).toBe('The shop opens');
+  });
+
+  it('rejects a JSON blob, since it answered the format not the task', () => {
+    expect(cleanOutput('{"lines":["a"]}')).toBeNull();
+  });
+
+  it('rejects instruction echoes', () => {
+    expect(cleanOutput('Respect the character limit.')).toBeNull();
+    expect(cleanOutput('Rewrite: at most 32 characters')).toBeNull();
+    expect(cleanOutput('The output should be concise')).toBeNull();
+    expect(cleanOutput('Note: I have shortened the draft')).toBeNull();
+    // Observed verbatim from Qwen2.5-1.5B during prompt-variant testing.
+    expect(cleanOutput('Respect the character limit.')).toBeNull();
+    expect(cleanOutput('Here is the revised subtitle:')).toBeNull();
+    expect(cleanOutput('The output should be concise')).toBeNull();
+  });
+
+  it('accepts real captions that contain echo-ish words later on', () => {
+    expect(cleanOutput('Subtitle: opens at 7am')).toBeNull(); // leading label: rejected
+    expect(cleanOutput('The limit is 10 rupees per kilo')).toBe('The limit is 10 rupees per kilo');
+  });
+
+  it('rejects empty output', () => {
+    expect(cleanOutput('')).toBeNull();
+    expect(cleanOutput('   \n  ')).toBeNull();
+  });
+
+  it('keeps a caption that merely starts with a normal word', () => {
+    expect(cleanOutput('Opens at 7am')).toBe('Opens at 7am');
   });
 });

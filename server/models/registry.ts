@@ -124,37 +124,28 @@ export const MT_SLOT: SlotSpec = {
 export const CAPTION_SLOT: SlotSpec = {
   slot: 'caption',
   task: 'text-generation',
-  purpose: 'Rewrite a machine draft into a caption that fits the time window and reads like a caption.',
-  // SmolLM2-360M, not Qwen2.5. We benchmarked three candidates on this exact
-  // task and the results were not close: Qwen2.5-0.5B and Qwen2.5-1.5B both
-  // failed to emit parseable JSON and degenerated into repetition, while
-  // SmolLM2-360M returned valid JSON on the first attempt and ran 2.5x faster
-  // than the 0.5B. Smaller and Apache-2.0. The benchmark is reproducible via
-  // `npm run bench:caption`.
-  defaultModelId: 'HuggingFaceTB/SmolLM2-360M-Instruct',
+  purpose: 'Suggest a shorter caption. Best-effort: the Fit solver guarantees the constraints, not the model.',
+  /**
+   * Selected by measurement, and the measurement is unflattering.
+   *
+   * We wanted a small open model that reliably compresses a draft into a
+   * character budget. None of these does. Across four realistic cases:
+   *
+   *   Qwen2.5-1.5B-Instruct   ~1/4 inside budget, and best wording when it hits
+   *   SmolLM2-360M-Instruct    0/4, fluent but overruns every budget
+   *   Qwen2.5-0.5B-Instruct    0/4, echoes the instruction
+   *
+   * Requiring JSON output made every model worse: they echo the instruction or
+   * emit the schema as literal text. Dropping the JSON requirement got real
+   * rewrites, so the prompt is plain text and we do the formatting ourselves.
+   *
+   * An earlier version of this file asserted the opposite, based on a test that
+   * omitted `repetition_penalty`. The claim was wrong; `npm run bench:caption`
+   * is what caught it. Qwen2.5-1.5B is the default because it wins on the cases
+   * it wins, but the Fit solver treats every suggestion as optional.
+   */
+  defaultModelId: 'onnx-community/Qwen2.5-1.5B-Instruct',
   models: [
-    {
-      id: 'HuggingFaceTB/SmolLM2-360M-Instruct',
-      label: 'SmolLM2 360M Instruct',
-      license: 'Apache-2.0',
-      licenseUrl: 'https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct',
-      dtype: 'q8',
-      approxMb: 400,
-      quality: 3,
-      speed: 5,
-      licenseNote: 'Default: best measured reliability on budgeted caption rewriting.',
-    },
-    {
-      id: 'onnx-community/Qwen2.5-0.5B-Instruct',
-      label: 'Qwen2.5 0.5B Instruct',
-      license: 'Apache-2.0',
-      licenseUrl: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct',
-      dtype: 'q8',
-      approxMb: 520,
-      quality: 3,
-      speed: 4,
-      licenseNote: 'Larger, but measured unreliable at structured output on this task.',
-    },
     {
       id: 'onnx-community/Qwen2.5-1.5B-Instruct',
       label: 'Qwen2.5 1.5B Instruct',
@@ -164,7 +155,29 @@ export const CAPTION_SLOT: SlotSpec = {
       approxMb: 1650,
       quality: 4,
       speed: 2,
-      licenseNote: 'Best general quality, slowest; ~7min load on CPU.',
+      licenseNote: 'Default. Best wording of the three, but only ~1 in 4 rewrites lands inside budget.',
+    },
+    {
+      id: 'HuggingFaceTB/SmolLM2-360M-Instruct',
+      label: 'SmolLM2 360M Instruct',
+      license: 'Apache-2.0',
+      licenseUrl: 'https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct',
+      dtype: 'q8',
+      approxMb: 400,
+      quality: 3,
+      speed: 5,
+      licenseNote: 'Fastest. Fluent but overran the character budget on all four test cases.',
+    },
+    {
+      id: 'onnx-community/Qwen2.5-0.5B-Instruct',
+      label: 'Qwen2.5 0.5B Instruct',
+      license: 'Apache-2.0',
+      licenseUrl: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct',
+      dtype: 'q8',
+      approxMb: 520,
+      quality: 2,
+      speed: 4,
+      licenseNote: 'Largest per byte and least useful: echoes the instruction rather than rewriting.',
     },
     {
       id: 'onnx-community/gemma-3-1b-it-ONNX',

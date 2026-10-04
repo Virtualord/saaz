@@ -7,6 +7,7 @@ import { log } from './core/logger.js';
 import { modelHealth, vadCachedLocally } from './models/loader.js';
 import { SLOTS } from './models/registry.js';
 import { jobsRouter } from './routes/jobs.js';
+import { tracesRouter } from './routes/traces.js';
 
 if (config.observability.sentryDsn) {
   Sentry.init({
@@ -60,6 +61,7 @@ app.get(
 );
 
 app.use('/api/jobs', jobsRouter);
+app.use('/api/traces', tracesRouter);
 
 app.get('/api/slots', (_req, res) => {
   res.json(

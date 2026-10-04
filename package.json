@@ -25,7 +25,8 @@
     "bench:asr": "tsx server/scripts/bench-asr.ts",
     "test:watch": "vitest --config vitest.config.ts",
     "fetch:vad": "tsx server/scripts/vad-fetch.ts",
-    "prove:offline": "npm run build:api && tsx server/scripts/prove-offline.ts"
+    "prove:offline": "npm run build:api && tsx server/scripts/prove-offline.ts",
+    "evidence": "npm run build:api && tsx server/scripts/capture-evidence.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
